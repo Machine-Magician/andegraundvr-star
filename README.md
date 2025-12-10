@@ -14,7 +14,6 @@
 **Languages & Databases:**
 - Python 🐍
 - SQL 📊
-- JavaScript (basics)
 
 **Data Science & ML:**
 - Pandas & NumPy
