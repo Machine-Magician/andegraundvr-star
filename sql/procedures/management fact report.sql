@@ -1,6 +1,6 @@
 USE [СлужебнаяДляОтчетов]
 GO
-/****** Object:  StoredProcedure [dbo].[ЗначениеБонусаДляПодразделений]    Script Date: 18.12.2025 9:20:47 ******/
+/****** Object:  StoredProcedure [dbo].[ЗначениеБонусаДляПодразделений]    Script Date: 16.01.2026 11:44:11 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -32,22 +32,55 @@ datefromparts(year(ФактТабель._Date_time)-2000, month(ФактТабе
 	then KPI._description 
 	else ПоказателиРасчетаЗарплаты._description 
 end	as Показатель
-,  ISNULL((
-        SELECT TOP 1 _fld50227 
-        FROM serv5.hrm_dev.dbo._InfoRg50219 
-        WHERE _fld50221_rrref = ДляПодразделений._fld49592_rrref
-            AND _fld50227 > 0  -- Только вес > 0
-        ORDER BY _fld50227 DESC  -- Берем максимальный вес
-    ), 0) AS Вес,
-    
-    -- ПЛАНОВОЕ ЗНАЧЕНИЕ: берем ПЕРВОЕ не нулевое значение
-    ISNULL((
-        SELECT TOP 1 _fld50228 
-        FROM serv5.hrm_dev.dbo._InfoRg50219 
-        WHERE _fld50221_rrref = ДляПодразделений._fld49592_rrref
-            AND _fld50227 > 0  -- Только если вес > 0
-        ORDER BY _fld50227 DESC  -- Сортировка по весу
-    ), 0) AS ПлановоеЗначение
+  
+--,irg._fld50227 AS Вес
+,COALESCE(
+        (
+            SELECT TOP 1 _fld50227 
+            FROM serv5.hrm_dev.dbo._InfoRg50219 
+            WHERE _fld50221_rrref = ДляПодразделений._fld49592_rrref
+                AND _fld50227 > 0  -- Только вес > 0
+               -- AND DATEFROMPARTS(YEAR(_Period)-2000, month(_Period), 1) =
+               --     DATEFROMPARTS(YEAR(ФактТабель._Date_time)-2000, month(ФактТабель._Date_time), 1)
+              --  AND _fld50224rref = Родитель._idrref  -- подразделение (Отдел)
+                AND _fld50223rref = СправочникДолжности._idrref  -- должность
+            ORDER BY _fld50227 DESC
+        ),
+        
+        0
+    ) AS Вес
+    ,CASE 
+    -- Если показатель "Фот/кг"
+    WHEN (CASE WHEN KPI._description IS NOT NULL 
+               THEN KPI._description 
+               ELSE ПоказателиРасчетаЗарплаты._description END) = 'Фот/кг'
+    THEN COALESCE(
+        (SELECT TOP 1 _fld50228 
+         FROM serv5.hrm_dev.dbo._InfoRg50219 
+         WHERE _fld50221_rrref = ДляПодразделений._fld49592_rrref
+            AND _fld50228 > 0
+            AND _fld50223rref = СправочникДолжности._idrref
+            -- БЕЗ фильтра по дате для "Фот/кг"
+			            AND DATEFROMPARTS(YEAR(_Period)-2000, MONTH(_Period), 1) =
+                DATEFROMPARTS(YEAR(ФактТабель._Date_time)-2000, MONTH(ФактТабель._Date_time), 1)
+         ORDER BY _fld50228 DESC),
+        0
+    )
+    -- Для всех остальных показателей
+    ELSE COALESCE(
+        (SELECT TOP 1 _fld50228 
+         FROM serv5.hrm_dev.dbo._InfoRg50219 
+         WHERE _fld50221_rrref = ДляПодразделений._fld49592_rrref
+            AND _fld50228 > 0
+            AND _fld50223rref = СправочникДолжности._idrref
+            -- С фильтром по дате для остальных
+            AND DATEFROMPARTS(YEAR(_Period)-2000, MONTH(_Period), 1) <=
+                DATEFROMPARTS(YEAR(ФактТабель._Date_time)-2000, MONTH(ФактТабель._Date_time), 1)
+         ORDER BY _fld50228 DESC),
+        0
+    )
+END AS ПлановоеЗначение
+	
 ,ДляПодразделений._fld49593 as ФактическоеЗначение
 
 
@@ -85,17 +118,31 @@ left join serv5.hrm_dev.dbo._Document49318_VT49498 as Переработки
 --left join serv5.hrm_dev.dbo._Document49318_VT49500 as перемЧасть
 --	on перемЧасть._document49318_idrref = ФактТабель._IDRref
 --	and перемЧасть._fld49587rref = ДляПодразделений._fld49591rref
+--LEFT JOIN serv5.hrm_dev.dbo._InfoRg50219 irg 
+--    ON irg._fld50221_rrref = ДляПодразделений._fld49592_rrref
+--    AND DATEFROMPARTS(YEAR(irg._Period)-2000, MONTH(irg._Period), 1) = ФактТабель._Date_time
+    -- AND irg._fld50224rref = Овнер._idrref
+    -- AND irg._fld50223rref = СправочникДолжности._idrref
+    --AND irg._fld50227 > 0
 
 
-
-WHERE YEAR(ФактТабель._Date_time)-2000 = YEAR(GETDATE())
+WHERE YEAR(ФактТабель._Date_time)-2000  > 2024  -- = YEAR(GETDATE())
 --and СотрудникиДляПодразд._description like 'Савицкая Виктория Викторовна'
 
 
 order by дата desc
 
 
---select * from #ЗначениеБонусаДляПодразделений
+--select distinct * from #ЗначениеБонусаДляПодразделений
+--where должность like '%нач%'
+--and  сотрудник = 'Сигаева Марина Сергеевна'
+--and дата = '2025-10-01'
+
+
+--select distinct count(вес) from #ЗначениеБонусаДляПодразделений
+--where вес = '0' 
+
+
 --where (сотрудникдляподразделений like '%бондарева%' and дата = '2025-11-01')
  --or (сотрудникдляподразделений like '%букреева%'  and дата = '2025-10-01') 
  --order by дата
@@ -110,13 +157,19 @@ order by дата desc
 --select * from serv5.hrm_dev.dbo._Document49318_VT49498 -- Переработки
 --where _fld49578rref = 0x80EC00155D037F0711EEFCA423DC9D73
 --select * from serv5.hrm_dev.dbo._Reference302 -- организации
---select * from serv5.hrm_dev.dbo._Reference390 -- ПодразделенияОрганизации
+--select * from serv5.hrm_dev.dbo._Reference390 -- ПодразделенияОрганизации 1
 --select * from serv5.hrm_dev.dbo._Reference525 -- сотрудники
 --select * from serv5.hrm_dev.dbo._Reference148 ---справочник должности
 --select * from serv5.hrm_dev.dbo._Reference56513 ---сотрудники доп персонал
 --select * from serv5.hrm_dev.dbo._Reference397 ---Справочник.ПоказателиРасчетаЗарплаты
 --select * from serv5.hrm_dev.dbo._Reference49534 ---KPI
 --select * from serv5.hrm_dev.dbo._InfoRg50219 -- РегистрСведений.ВРА_ПоказателиПеременнойЧасти
+--where datefromparts(year(_Period)-2000, month(_Period), 1) like '%2025-01-01%'
+--where _fld50221_rrref = 0x85D200155D007AB511E4CD45F188DC5D
+--and _fld50221_rrref = 
+--and _Period > '4026-01-01'
+--order by _period desc
+
 
 
 -- шаг 2 добавление средневзвешенного бонуса
@@ -244,7 +297,7 @@ select
 ,Участок
 ,Должность
 ,Сотрудник
-,LEFT(Показатель, 255) asПоказатель
+,LEFT(Показатель, 255) as Показатель
 ,Вес    
 ,ПлановоеЗначение
 ,ФактическоеЗначение
@@ -287,7 +340,7 @@ order by дата desc
 
 delete  from [СлужебнаяДляОтчетов].[dbo].[БонусДляПодразделений];
 insert into [СлужебнаяДляОтчетов].[dbo].[БонусДляПодразделений]
-select * from #Сцепка
+select distinct * from #Сцепка
 
 
 
